@@ -126,7 +126,7 @@ namespace jank::analyze
                                  expr::cpp_value_ref const val,
                                  native_vector<runtime::object_ref> const &macro_expansions)
   {
-    return error::internal_analyze_failure(
+    return error::analyze_invalid_cpp_operator_call(
       util::format("Unary operator {} is not supported for '{}'.",
                    op_name,
                    Cpp::GetTypeAsString(args[0].m_Type)),
@@ -139,7 +139,7 @@ namespace jank::analyze
                                   expr::cpp_value_ref const val,
                                   native_vector<runtime::object_ref> const &macro_expansions)
   {
-    return error::internal_analyze_failure(
+    return error::analyze_invalid_cpp_operator_call(
       util::format("Binary operator {} is not supported for '{}' and '{}'.",
                    op_name,
                    Cpp::GetTypeAsString(args[0].m_Type),
@@ -520,7 +520,7 @@ namespace jank::analyze
     {
       if(arg_types.size() > 1)
       {
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_constructor_call(
           util::format("'{}' can only be constructed with one argument.",
                        Cpp::GetTypeAsString(val->type)),
           object_source(val->form),
@@ -529,7 +529,7 @@ namespace jank::analyze
       if(arg_types.size() == 1 && !Cpp::IsConstructible(val->type, arg_types[0].m_Type)
          && !cpp_util::is_convertible(val->type))
       {
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_constructor_call(
           util::format("'{}' cannot be constructed from a '{}'.",
                        Cpp::GetTypeAsString(val->type),
                        Cpp::GetTypeAsString(arg_types[0].m_Type)),
@@ -552,9 +552,10 @@ namespace jank::analyze
     {
       if(arg_exprs.empty())
       {
-        return error::internal_analyze_failure("Member function calls need an invoking object.",
-                                               object_source(val->form),
-                                               latest_expansion(macro_expansions));
+        return error::analyze_invalid_cpp_member_call(
+          "Member function calls need an invoking object.",
+          object_source(val->form),
+          latest_expansion(macro_expansions));
       }
 
       /* TODO: Switch std::vector to native_vector where possible. */
@@ -564,7 +565,7 @@ namespace jank::analyze
       auto const parent_name{ cpp_util::get_qualified_name(obj_scope) };
       if(!obj_scope)
       {
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_member_call(
           util::format("There is no '{}' member function within '{}'.", member_name, parent_name),
           object_source(val->form),
           latest_expansion(macro_expansions));
@@ -578,7 +579,7 @@ namespace jank::analyze
       fns = Cpp::LookupMethods(member_name, obj_scope);
       if(fns.empty())
       {
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_member_call(
           util::format("There is no '{}' member function within '{}'.", parent_name),
           object_source(val->form),
           latest_expansion(macro_expansions));
@@ -591,15 +592,16 @@ namespace jank::analyze
       auto const arg_count{ arg_exprs.size() };
       if(arg_count == 0)
       {
-        return error::internal_analyze_failure("Operator calls need an invoking object.",
-                                               object_source(val->form),
-                                               latest_expansion(macro_expansions));
+        return error::analyze_invalid_cpp_operator_call("Operator calls need an invoking object.",
+                                                        object_source(val->form),
+                                                        latest_expansion(macro_expansions));
       }
       else if(arg_count > 2)
       {
-        return error::internal_analyze_failure("Operator calls may only take one or two arguments.",
-                                               object_source(val->form),
-                                               latest_expansion(macro_expansions));
+        return error::analyze_invalid_cpp_operator_call(
+          "Operator calls may only take one or two arguments.",
+          object_source(val->form),
+          latest_expansion(macro_expansions));
       }
 
       auto const obj_type{ Cpp::GetNonReferenceType(arg_types[0].m_Type) };
@@ -650,7 +652,7 @@ namespace jank::analyze
       if(fns.empty())
       {
         /* TODO: Show arg types. */
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_operator_call(
           util::format("There is no '{}' operator support for '{}'.",
                        op_name,
                        Cpp::GetTypeAsString(obj_type)),
@@ -679,7 +681,7 @@ namespace jank::analyze
       fns = Cpp::GetFunctionsUsingName(Cpp::GetParentScope(val->scope), scope_name);
       if(fns.empty())
       {
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_function_call(
           util::format("There is no '{}' function.", scope_name),
           object_source(val->form),
           latest_expansion(macro_expansions));
@@ -703,9 +705,9 @@ namespace jank::analyze
     auto const match_res{ cpp_util::find_best_overload(fns, arg_types) };
     if(match_res.is_err())
     {
-      return error::internal_analyze_failure(util::format("{}", match_res.expect_err()),
-                                             object_source(val->form),
-                                             latest_expansion(macro_expansions));
+      return error::analyze_invalid_cpp_function_call(util::format("{}", match_res.expect_err()),
+                                                      object_source(val->form),
+                                                      latest_expansion(macro_expansions));
     }
     jtl::ptr<void> match{ match_res.expect_ok() };
     if(match)
@@ -763,17 +765,18 @@ namespace jank::analyze
     };
     if(new_types.is_err())
     {
-      return error::internal_analyze_failure(util::format("{}", new_types.expect_err()),
-                                             object_source(val->form),
-                                             latest_expansion(macro_expansions));
+      return error::analyze_invalid_cpp_function_call(util::format("{}", new_types.expect_err()),
+                                                      object_source(val->form),
+                                                      latest_expansion(macro_expansions));
     }
 
     auto const conversion_match_res{ cpp_util::find_best_overload(fns, new_types.expect_ok()) };
     if(conversion_match_res.is_err())
     {
-      return error::internal_analyze_failure(util::format("{}", conversion_match_res.expect_err()),
-                                             object_source(val->form),
-                                             latest_expansion(macro_expansions));
+      return error::analyze_invalid_cpp_function_call(
+        util::format("{}", conversion_match_res.expect_err()),
+        object_source(val->form),
+        latest_expansion(macro_expansions));
     }
     match = conversion_match_res.expect_ok();
     if(match)
@@ -852,7 +855,7 @@ namespace jank::analyze
                       Cpp::GetTypeAsString(arg_types[i].m_Type));
     }
 
-    return error::internal_analyze_failure(util::format("No matching call to '{}' {}.{}",
+    return error::analyze_invalid_cpp_call(util::format("No matching call to '{}' {}.{}",
                                                         scope_name,
                                                         is_ctor ? "constructor" : "function",
                                                         sb.release()),
@@ -1525,7 +1528,7 @@ namespace jank::analyze
          && !cpp_util::is_convertible(last_expression_type))
       {
         /* TODO: Error. */
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_conversion(
           util::format("This function is returning a native object of type '{}', which is not "
                        "convertible to a jank runtime object.",
                        Cpp::GetTypeAsString(last_expression_type)),
@@ -3006,7 +3009,7 @@ namespace jank::analyze
     if(name.ends_with('.') || name.contains(".."))
     {
       /* TODO: Error. */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_symbol(
         "Name must not contain consecutive '.' dots. Each '.' corresponds with a '::' in C++.",
         object_source(sym),
         latest_expansion(macro_expansions));
@@ -3089,9 +3092,9 @@ namespace jank::analyze
     if(scope_res.is_err())
     {
       /* TODO: Error. */
-      return error::internal_analyze_failure(util::format("{}", scope_res.expect_err()),
-                                             object_source(sym),
-                                             latest_expansion(macro_expansions));
+      return error::analyze_unresolved_cpp_symbol(util::format("{}", scope_res.expect_err()),
+                                                  object_source(sym),
+                                                  latest_expansion(macro_expansions));
     }
 
     /* The scope could represent either a type or a value, if it's valid. However, it's
@@ -3101,16 +3104,17 @@ namespace jank::analyze
 
     if(Cpp::IsNamespace(scope))
     {
-      return error::internal_analyze_failure("Taking a C++ namespace by value is not permitted.",
-                                             object_source(sym),
-                                             latest_expansion(macro_expansions));
+      return error::analyze_unresolved_cpp_symbol(
+        "Taking a C++ namespace by value is not permitted.",
+        object_source(sym),
+        latest_expansion(macro_expansions));
     }
 
     if(Cpp::IsTemplatedFunction(scope))
     {
       if(ptr_count)
       {
-        return error::internal_analyze_failure(
+        return error::analyze_unresolved_cpp_symbol(
           util::format("A '*' suffix may only be used on types. Here, it was provided on the "
                        "function template '{}'.",
                        Cpp::GetQualifiedName(scope)),
@@ -3173,7 +3177,7 @@ namespace jank::analyze
     if(ptr_count)
     {
       /* TODO: Error. */
-      return error::internal_analyze_failure(
+      return error::analyze_unresolved_cpp_symbol(
         "The '*' suffix for pointers may only be used on types.",
         object_source(sym),
         latest_expansion(macro_expansions));
@@ -3183,7 +3187,7 @@ namespace jank::analyze
     if(is_ctor)
     {
       /* TODO: Error. */
-      return error::internal_analyze_failure(
+      return error::analyze_unresolved_cpp_symbol(
         util::format("The '.' suffix for constructors may only be used on types. In this case, "
                      "'{}' is a value of type '{}'.",
                      name,
@@ -3270,7 +3274,7 @@ namespace jank::analyze
     if(count != 2)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_raw(
         "A 'cpp/raw' form must take a string literal of C++ code and nothing else.",
         object_source(l),
         latest_expansion(macro_expansions));
@@ -3287,7 +3291,7 @@ namespace jank::analyze
 
     if(string_expr->kind != expression_kind::primitive_literal)
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_raw(
                "The first and only argument to 'cpp/raw' must be a string of C++ code.",
                object_source(string_obj),
                latest_expansion(macro_expansions))
@@ -3296,7 +3300,7 @@ namespace jank::analyze
     auto const obj{ llvm::cast<expr::primitive_literal>(string_expr.data)->data };
     if(obj->type != runtime::object_type::persistent_string)
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_raw(
                "The first and only argument to 'cpp/raw' must be a string of C++ code.",
                object_source(string_obj),
                latest_expansion(macro_expansions))
@@ -3320,7 +3324,7 @@ namespace jank::analyze
     if(count != 2)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_type(
         "A 'cpp/type' form must take a string literal containing a C++ type and nothing else.",
         object_source(l),
         latest_expansion(macro_expansions));
@@ -3337,7 +3341,7 @@ namespace jank::analyze
 
     if(string_expr->kind != expression_kind::primitive_literal)
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_type(
                "The first and only argument to 'cpp/type' must be a string containing a C++ type.",
                object_source(string_obj),
                latest_expansion(macro_expansions))
@@ -3346,7 +3350,7 @@ namespace jank::analyze
     auto const obj{ llvm::cast<expr::primitive_literal>(string_expr.data)->data };
     if(obj->type != runtime::object_type::persistent_string)
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_type(
                "The first and only argument to 'cpp/type' must be a string containing a C++ type.",
                object_source(string_obj),
                latest_expansion(macro_expansions))
@@ -3381,7 +3385,7 @@ namespace jank::analyze
                                            type);
     }
 
-    return error::internal_analyze_failure(
+    return error::analyze_invalid_cpp_type(
              util::format("Unable to resolve type '{}' to something jank can use.", str),
              object_source(string_obj),
              latest_expansion(macro_expansions))
@@ -3399,7 +3403,7 @@ namespace jank::analyze
     if(count != 3)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_cast(
         "A C++ cast must have only a C++ type and a value as arguments.",
         object_source(l),
         latest_expansion(macro_expansions));
@@ -3416,7 +3420,7 @@ namespace jank::analyze
 
     if(type_expr_res.expect_ok()->kind != expression_kind::cpp_type)
     {
-      return error::internal_analyze_failure("The first argument to 'cpp/cast' must be a C++ type.",
+      return error::analyze_invalid_cpp_cast("The first argument to 'cpp/cast' must be a C++ type.",
                                              object_source(type_obj),
                                              latest_expansion(macro_expansions))
         ->add_usage(read::parse::reparse_nth(l, 1));
@@ -3474,7 +3478,7 @@ namespace jank::analyze
                                            value_expr);
     }
 
-    return error::internal_analyze_failure(
+    return error::analyze_invalid_cpp_cast(
       util::format(
         "Invalid cast from '{}' to '{}'. This is impossible considering both constructors "
         "and any specializations of 'jank::runtime::convert'.",
@@ -3495,9 +3499,9 @@ namespace jank::analyze
     if(count != 2)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure("A 'cpp/box' call must have only a C++ pointer value.",
-                                             object_source(l),
-                                             latest_expansion(macro_expansions));
+      return error::analyze_invalid_cpp_box("A 'cpp/box' call must have only a C++ pointer value.",
+                                            object_source(l),
+                                            latest_expansion(macro_expansions));
     }
 
     auto const value_obj(l->data.rest().first().unwrap());
@@ -3512,7 +3516,7 @@ namespace jank::analyze
     auto const value_type{ cpp_util::expression_type(value_expr) };
     if(!Cpp::IsPointerType(value_type))
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_box(
         util::format("Unable to create an opaque box from '{}', since it's not a raw pointer type."
                      " In most cases, wrapping the value in a 'cpp/&' will work, but be mindful of "
                      "its lifetime.",
@@ -3522,7 +3526,7 @@ namespace jank::analyze
     }
     else if(cpp_util::is_any_object(value_type))
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_box(
         util::format(
           "Unable to create an opaque box from '{}', since it's already a boxed jank object."
           " Opaque boxes are meant to be for native raw pointers only.",
@@ -3545,7 +3549,7 @@ namespace jank::analyze
     if(count != 3)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_unbox(
         "A C++ unbox must have only a C++ type and a value as arguments.",
         object_source(l),
         latest_expansion(macro_expansions));
@@ -3562,7 +3566,7 @@ namespace jank::analyze
 
     if(type_expr_res.expect_ok()->kind != expression_kind::cpp_type)
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_unbox(
                "The first argument to 'cpp/unbox' must be a C++ type.",
                object_source(type_obj),
                latest_expansion(macro_expansions))
@@ -3581,7 +3585,7 @@ namespace jank::analyze
     auto const value_expr{ value_expr_res.expect_ok() };
     if(!Cpp::IsPointerType(type_expr->type))
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_unbox(
         util::format("Unable to unbox to '{}', since it's not a raw pointer type."
                      " The type specified here should be the exact type of the value originally "
                      "passed to 'cpp/box'.",
@@ -3608,9 +3612,9 @@ namespace jank::analyze
     if(count < 2)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure("The type to allocate is missing from this 'cpp/new'.",
-                                             object_source(l),
-                                             latest_expansion(macro_expansions));
+      return error::analyze_invalid_cpp_new("The type to allocate is missing from this 'cpp/new'.",
+                                            object_source(l),
+                                            latest_expansion(macro_expansions));
     }
 
     auto const type_obj(l->data.rest().first().unwrap());
@@ -3624,9 +3628,9 @@ namespace jank::analyze
 
     if(type_expr_res.expect_ok()->kind != expression_kind::cpp_type)
     {
-      return error::internal_analyze_failure("The first argument to 'cpp/new' must be a C++ type.",
-                                             object_source(type_obj),
-                                             latest_expansion(macro_expansions))
+      return error::analyze_invalid_cpp_new("The first argument to 'cpp/new' must be a C++ type.",
+                                            object_source(type_obj),
+                                            latest_expansion(macro_expansions))
         ->add_usage(read::parse::reparse_nth(l, 1));
     }
 
@@ -3672,7 +3676,7 @@ namespace jank::analyze
     if(count < 2)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_delete(
         "This call to 'cpp/delete' is missing the value to delete.",
         object_source(l),
         latest_expansion(macro_expansions));
@@ -3680,7 +3684,7 @@ namespace jank::analyze
     else if(2 < count)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_delete(
         "A call to 'cpp/delete' may only have one argument, which is the value to delete.",
         object_source(l),
         latest_expansion(macro_expansions));
@@ -3698,7 +3702,7 @@ namespace jank::analyze
     auto const value_type{ cpp_util::expression_type(value_expr) };
     if(!Cpp::IsPointerType(value_type))
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_delete(
         util::format("Unable to delete '{}', since it's not a raw pointer type.",
                      Cpp::GetTypeAsString(value_type)),
         object_source(l),
@@ -3721,7 +3725,7 @@ namespace jank::analyze
     if(count < 2)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_member_access(
         util::format("Missing value from which to access '{}' member.", name),
         object_source(l),
         latest_expansion(macro_expansions));
@@ -3729,7 +3733,7 @@ namespace jank::analyze
     else if(count >= 3)
     {
       /* TODO: Error */
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_member_access(
         util::format("Excess arguments provided for '{}' member access. Only one is expected.",
                      name),
         object_source(l),
@@ -3749,14 +3753,14 @@ namespace jank::analyze
     auto member_scope{ Cpp::LookupDatamember(name, parent_scope) };
     if(!parent_scope)
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_member_access(
         util::format("Unable to find any members within '{}'.", Cpp::GetTypeAsString(parent_type)),
         object_source(l),
         latest_expansion(macro_expansions));
     }
     if(member_scope && Cpp::IsPrivateVariable(member_scope))
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_member_access(
         util::format(
           "The '{}' member within '{}' is private. It can only be accessed if it's public.",
           name,
@@ -3766,7 +3770,7 @@ namespace jank::analyze
     }
     if(member_scope && Cpp::IsProtectedVariable(member_scope))
     {
-      return error::internal_analyze_failure(
+      return error::analyze_invalid_cpp_member_access(
         util::format(
           "The '{}' member within '{}' is protected. It can only be accessed if it's public.",
           name,
@@ -3792,7 +3796,7 @@ namespace jank::analyze
 
       if(!member_scope)
       {
-        return error::internal_analyze_failure(
+        return error::analyze_invalid_cpp_member_access(
           util::format("There is no '{}' member within '{}'.",
                        name,
                        cpp_util::get_qualified_name(parent_scope)),
