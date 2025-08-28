@@ -426,7 +426,7 @@ namespace jank::codegen
   reusable_context::reusable_context(jtl::immutable_string const &module_name,
                                      std::unique_ptr<llvm::LLVMContext> llvm_ctx)
     : module_name{ module_name }
-    , ctor_name{ runtime::munge(__rt_ctx->unique_string("jank_global_init")) }
+    , ctor_name{ runtime::munge(__rt_ctx->unique_namespaced_string("jank_global_init")) }
     //, llvm_ctx{ std::make_unique<llvm::LLVMContext>() }
     //, llvm_ctx{ reinterpret_cast<std::unique_ptr<llvm::orc::ThreadSafeContext> *>(
     //              reinterpret_cast<void *>(
