@@ -511,6 +511,7 @@ namespace jank::analyze
   build_cpp_call(expr::cpp_value_ref const val,
                  native_vector<expression_ref> arg_exprs,
                  std::vector<Cpp::TemplateArgInfo> arg_types,
+                 std::vector<Cpp::TCppScope_t> const &arg_scopes,
                  local_frame_ptr const current_frame,
                  expression_position const position,
                  bool const needs_box,
@@ -648,35 +649,45 @@ namespace jank::analyze
     }
 
     std::string scope_name{};
-    if(is_ctor)
+    switch(val->val_kind)
     {
-      scope_name = Cpp::GetName(val->scope);
-      Cpp::LookupConstructors("", val->scope, fns);
-    }
-    else if(is_member_call)
-    {
-      scope_name = try_object<obj::symbol>(val->form)->name.substr(1);
-    }
-    else if(is_operator_call)
-    {
-      scope_name = try_object<obj::symbol>(val->form)->name;
-    }
-    else
-    {
-      scope_name = Cpp::GetName(val->scope);
-      fns = Cpp::GetFunctionsUsingName(Cpp::GetParentScope(val->scope), scope_name);
-      if(fns.empty())
-      {
+      case expr::cpp_value::value_kind::null:
+      case expr::cpp_value::value_kind::bool_true:
+      case expr::cpp_value::value_kind::bool_false:
+      case expr::cpp_value::value_kind::variable:
+      case expr::cpp_value::value_kind::enum_constant:
+      case expr::cpp_value::value_kind::member_access:
         return error::analyze_invalid_cpp_function_call(
-          util::format("There is no '{}' function.", scope_name),
+          util::format("This value is not callable.", scope_name),
           object_source(val->form),
           latest_expansion(macro_expansions));
-      }
+      case expr::cpp_value::value_kind::constructor:
+        scope_name = Cpp::GetName(val->scope);
+        Cpp::LookupConstructors("", val->scope, fns);
+        break;
+      case expr::cpp_value::value_kind::member_call:
+        scope_name = try_object<obj::symbol>(val->form)->name.substr(1);
+        break;
+      case expr::cpp_value::value_kind::operator_call:
+        scope_name = try_object<obj::symbol>(val->form)->name;
+        break;
+      case expr::cpp_value::value_kind::function:
+        scope_name = Cpp::GetName(val->scope);
+        fns = Cpp::GetFunctionsUsingName(Cpp::GetParentScope(val->scope), scope_name);
+        if(fns.empty())
+        {
+          return error::analyze_invalid_cpp_function_call(
+            util::format("There is no '{}' function.", scope_name),
+            object_source(val->form),
+            latest_expansion(macro_expansions));
+        }
+        break;
     }
 
     for(auto &arg : arg_types)
     {
-      if(!Cpp::IsPointerType(arg.m_Type) && !Cpp::IsReferenceType(arg.m_Type))
+      if(!Cpp::IsPointerType(arg.m_Type) && !Cpp::IsReferenceType(arg.m_Type)
+         && !Cpp::IsBuiltin(arg.m_Type))
       {
         arg.m_Type = Cpp::GetLValueReferenceType(arg.m_Type);
       }
@@ -688,7 +699,7 @@ namespace jank::analyze
     //              is_operator_call);
     //for(auto const fn : fns)
     //{
-    //  util::println("\tfn {}: {}",
+    //  util::println("\t{} -- {}",
     //                cpp_util::get_qualified_name(fn),
     //                Cpp::GetTypeAsString(Cpp::GetTypeFromScope(fn)));
     //}
@@ -699,7 +710,7 @@ namespace jank::analyze
     //}
 
     //util::println("looking for normal match");
-    auto const match_res{ cpp_util::find_best_overload(fns, arg_types) };
+    auto const match_res{ cpp_util::find_best_overload(fns, arg_types, arg_scopes) };
     if(match_res.is_err())
     {
       return error::analyze_invalid_cpp_function_call(util::format("{}", match_res.expect_err()),
@@ -721,7 +732,32 @@ namespace jank::analyze
                                                         latest_expansion(macro_expansions));
       }
 
-      //util::println("\tmatch found: {}", Cpp::GetTypeAsString(Cpp::GetTypeFromScope(match)));
+      //util::println("match found\n\t{}", Cpp::GetTypeAsString(Cpp::GetTypeFromScope(match)));
+      //util::println("new args");
+      //for(auto const arg : arg_types)
+      //{
+      //  util::println("\targ type {}", Cpp::GetTypeAsString(arg.m_Type));
+      //}
+
+      /* The arg types could have changed during overload resolution (see find_best_overload), so
+       * we want to apply any new types. We really only care about doing this for raw C++ values.
+       * Nothing else could have an unresolved template up until now. */
+      for(size_t i{}; i < arg_types.size(); ++i)
+      {
+        if(auto const value = llvm::dyn_cast<expr::cpp_value>(arg_exprs[i].data))
+        {
+          value->type = arg_types[i].m_Type;
+        }
+      }
+
+      if(auto const res = cpp_util::instantiate_if_needed(match); res.is_err())
+      {
+        return error::analyze_invalid_cpp_function_call(res.expect_err(),
+                                                        object_source(val->form),
+                                                        latest_expansion(macro_expansions));
+      }
+
+      //util::println("match found\n\t{}", Cpp::GetTypeAsString(Cpp::GetTypeFromScope(match)));
       auto const conversion_res{
         apply_implicit_conversions(match, arg_exprs, arg_types, macro_expansions)
       };
@@ -773,17 +809,21 @@ namespace jank::analyze
     }
 
     //util::println("looking for conversion match");
-    auto const new_types{
+    auto const new_types_res{
       cpp_util::find_best_arg_types_with_conversions(fns, arg_types, is_member_call)
     };
-    if(new_types.is_err())
+    if(new_types_res.is_err())
     {
-      return error::analyze_invalid_cpp_function_call(util::format("{}", new_types.expect_err()),
+      return error::analyze_invalid_cpp_function_call(new_types_res.expect_err(),
                                                       object_source(val->form),
                                                       latest_expansion(macro_expansions));
     }
 
-    auto const conversion_match_res{ cpp_util::find_best_overload(fns, new_types.expect_ok()) };
+    auto new_types{ new_types_res.expect_ok() };
+    /* We don't bother with figuring out scopes for conversion calls. They need to match up
+     * perfectly or we just won't do it. */
+    std::vector<Cpp::TCppScope_t> const empty_scopes(arg_scopes.size(), nullptr);
+    auto const conversion_match_res{ cpp_util::find_best_overload(fns, new_types, empty_scopes) };
     if(conversion_match_res.is_err())
     {
       return error::analyze_invalid_cpp_function_call(
@@ -800,7 +840,7 @@ namespace jank::analyze
       }
 
       //util::println("\tconversion match found with new arg types");
-      //for(auto const arg : new_types.expect_ok())
+      //for(auto const arg : new_types_res.expect_ok())
       //{
       //  util::println("\t\targ type {}", Cpp::GetTypeAsString(arg.m_Type));
       //}
@@ -903,6 +943,7 @@ namespace jank::analyze
                           expression_ref const source,
                           native_vector<expression_ref> arg_exprs,
                           std::vector<Cpp::TemplateArgInfo> arg_types,
+                          std::vector<Cpp::TCppScope_t> arg_scopes,
                           local_frame_ptr const current_frame,
                           expression_position const position,
                           bool const needs_box,
@@ -930,9 +971,11 @@ namespace jank::analyze
 
         arg_exprs.insert(arg_exprs.begin(), source);
         arg_types.insert(arg_types.begin(), { source_type });
+        arg_scopes.insert(arg_scopes.begin(), scope);
         return build_cpp_call(value,
                               jtl::move(arg_exprs),
                               jtl::move(arg_types),
+                              jtl::move(arg_scopes),
                               current_frame,
                               position,
                               needs_box,
@@ -1063,6 +1106,7 @@ namespace jank::analyze
       auto const new_expr{ build_cpp_call(cpp_value,
                                           { expr },
                                           { { expr_type } },
+                                          { Cpp::GetScopeFromType(bare_param_type) },
                                           expr->frame,
                                           cast_position,
                                           expr->needs_box,
@@ -1104,10 +1148,13 @@ namespace jank::analyze
      * more params than args, if some of them support default values. */
     for(usize i{}; i < arg_exprs.size() - member_offset; ++i)
     {
+      /* For variadic C functions, we won't have a parameter type for anything which goes
+       * into the va_list. For those, we'll just take the arg type as is. */
       auto const param_type{ Cpp::GetFunctionArgType(fn, i) };
+      auto const arg_type{ arg_types[i + member_offset].m_Type };
       auto const res{ apply_implicit_conversion(arg_exprs[i + member_offset],
-                                                arg_types[i + member_offset].m_Type,
-                                                param_type,
+                                                arg_type,
+                                                param_type ?: arg_type,
                                                 macro_expansions) };
       if(res.is_err())
       {
@@ -3523,6 +3570,7 @@ namespace jank::analyze
     auto const arg_count{ it.size() };
     native_vector<expression_ref> arg_exprs;
     std::vector<Cpp::TemplateArgInfo> arg_types;
+    std::vector<Cpp::TCppScope_t> arg_scopes;
     for(usize i{}; i < arg_count; ++i, it = it.rest())
     {
       auto arg_expr{
@@ -3534,6 +3582,9 @@ namespace jank::analyze
       }
       arg_exprs.emplace_back(arg_expr.expect_ok());
       arg_types.emplace_back(cpp_util::expression_type(arg_exprs.back()));
+
+      auto const scope{ cpp_util::expression_scope(arg_exprs.back()) };
+      arg_scopes.emplace_back(scope);
     }
 
     if(source->kind == expression_kind::cpp_value)
@@ -3542,6 +3593,7 @@ namespace jank::analyze
       return build_cpp_call(value,
                             jtl::move(arg_exprs),
                             jtl::move(arg_types),
+                            jtl::move(arg_scopes),
                             current_frame,
                             position,
                             needs_box,
@@ -3553,6 +3605,7 @@ namespace jank::analyze
                                      source,
                                      jtl::move(arg_exprs),
                                      jtl::move(arg_types),
+                                     jtl::move(arg_scopes),
                                      current_frame,
                                      position,
                                      needs_box,
@@ -3777,7 +3830,7 @@ namespace jank::analyze
                                                           result.fn_scope,
                                                           expr::cpp_value::value_kind::function) };
         auto const res{
-          build_cpp_call(source, {}, {}, current_frame, position, needs_box, macro_expansions)
+          build_cpp_call(source, {}, {}, {}, current_frame, position, needs_box, macro_expansions)
         };
         if(res.is_ok())
         {
@@ -4335,7 +4388,8 @@ namespace jank::analyze
                           || std::same_as<T, runtime::obj::keyword>
                           || std::same_as<T, runtime::obj::nil>
                           || std::same_as<T, runtime::obj::persistent_string>
-                          || std::same_as<T, runtime::obj::character>)
+                          || std::same_as<T, runtime::obj::character>
+                          || std::same_as<T, runtime::obj::uuid>)
         {
           return analyze_primitive_literal(o, current_frame, position, fn_ctx, needs_box);
         }

@@ -151,6 +151,7 @@ namespace jank::codegen
     llvm::Value *gen_global(runtime::obj::symbol_ref s) const;
     llvm::Value *gen_global(runtime::obj::keyword_ref k) const;
     llvm::Value *gen_global(runtime::obj::character_ref c) const;
+    llvm::Value *gen_global(runtime::obj::uuid_ref u) const;
     llvm::Value *gen_global_from_read_string(runtime::object_ref o) const;
     llvm::Value *gen_function_instance(analyze::expr::function_ref expr,
                                        analyze::expr::function_arity const &fn_arity);
@@ -877,7 +878,8 @@ namespace jank::codegen
                      || std::same_as<T, runtime::obj::keyword>
                      || std::same_as<T, runtime::obj::persistent_string>
                      || std::same_as<T, runtime::obj::ratio>
-                     || std::same_as<T, runtime::obj::big_integer>)
+                     || std::same_as<T, runtime::obj::big_integer>
+                     || std::same_as<T, runtime::obj::uuid>)
         {
           return gen_global(typed_o);
         }
@@ -1599,8 +1601,12 @@ namespace jank::codegen
     }
 
     auto const callable{ Cpp::IsFunctionPointerType(expr->type)
-                           ? Cpp::MakeFunctionValueAotCallable(expr->scope)
+                           /* We pass the type and the scope in here so that unresolved template
+                            * scopes can be turned into the correct specialization which matches
+                            * the type we have. */
+                           ? Cpp::MakeFunctionValueAotCallable(expr->scope, expr->type)
                            : Cpp::MakeAotCallable(expr->scope) };
+    jank_debug_assert(callable);
     link_module(*ctx, reinterpret_cast<llvm::Module *>(callable.getModule()));
 
     auto const alloc{ alloc_type(*ctx, llvm_ctx, expr->type) };
@@ -1826,10 +1832,17 @@ namespace jank::codegen
       link_module(*ctx, parse_res->TheModule.get());
     }
 
+    std::vector<Cpp::TCppType_t> arg_types;
+    arg_types.reserve(expr->arg_exprs.size());
+    for(auto const arg_expr : expr->arg_exprs)
+    {
+      arg_types.emplace_back(cpp_util::expression_type(arg_expr));
+    }
+
     if(expr->source_expr->kind == expression_kind::cpp_value)
     {
       auto const source{ llvm::cast<expr::cpp_value>(expr->source_expr.data) };
-      return gen_aot_call(Cpp::MakeAotCallable(source->scope),
+      return gen_aot_call(Cpp::MakeAotCallable(source->scope, arg_types),
                           source->scope,
                           expr->type,
                           Cpp::GetName(source->scope),
@@ -1841,12 +1854,6 @@ namespace jank::codegen
     else
     {
       auto const source_type{ cpp_util::expression_type(expr->source_expr) };
-      std::vector<Cpp::TCppType_t> arg_types;
-      arg_types.reserve(expr->arg_exprs.size());
-      for(auto const arg_expr : expr->arg_exprs)
-      {
-        arg_types.emplace_back(cpp_util::expression_type(arg_expr));
-      }
       auto arg_exprs{ expr->arg_exprs };
       arg_exprs.insert(arg_exprs.begin(), expr->source_expr);
       return gen_aot_call(Cpp::MakeApplyCallable(source_type, arg_types),
@@ -2505,6 +2512,42 @@ namespace jank::codegen
       auto const create_fn(llvm_module->getOrInsertFunction("jank_string_create", create_fn_type));
 
       llvm::SmallVector<llvm::Value *, 1> const args{ gen_c_string(s->data.c_str()) };
+      auto const call(ctx->builder->CreateCall(create_fn, args));
+      ctx->builder->CreateStore(call, global);
+
+      if(prev_block == ctx->global_ctor_block)
+      {
+        return call;
+      }
+    }
+
+    return ctx->builder->CreateLoad(ctx->builder->getPtrTy(), global);
+  }
+
+  llvm::Value *llvm_processor::impl::gen_global(obj::uuid_ref const u) const
+  {
+    auto const found(ctx->literal_globals.find(u));
+    if(found != ctx->literal_globals.end())
+    {
+      return ctx->builder->CreateLoad(ctx->builder->getPtrTy(), found->second);
+    }
+
+    auto &global(ctx->literal_globals[u]);
+    auto const name(util::format("uuid_{}", u->to_hash()));
+    auto const var(create_global_var(name));
+    llvm_module->insertGlobalVariable(var);
+    global = var;
+
+    auto const prev_block(ctx->builder->GetInsertBlock());
+    {
+      llvm::IRBuilder<>::InsertPointGuard const guard{ *ctx->builder };
+      ctx->builder->SetInsertPoint(ctx->global_ctor_block);
+
+      auto const create_fn_type(
+        llvm::FunctionType::get(ctx->builder->getPtrTy(), { ctx->builder->getPtrTy() }, false));
+      auto const create_fn(llvm_module->getOrInsertFunction("jank_uuid_create", create_fn_type));
+
+      llvm::SmallVector<llvm::Value *, 1> const args{ gen_c_string(u->to_string().c_str()) };
       auto const call(ctx->builder->CreateCall(create_fn, args));
       ctx->builder->CreateStore(call, global);
 
