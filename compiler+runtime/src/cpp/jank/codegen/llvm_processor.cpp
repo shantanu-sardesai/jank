@@ -439,7 +439,7 @@ namespace jank::codegen
     , mam{ std::make_unique<llvm::ModuleAnalysisManager>() }
     , pic{ std::make_unique<llvm::PassInstrumentationCallbacks>() }
   {
-    auto m{ std::make_unique<llvm::Module>(__rt_ctx->unique_string(module_name).c_str(),
+    auto m{ std::make_unique<llvm::Module>(__rt_ctx->unique_namespaced_string(module_name).c_str(),
                                            *llvm_ctx) };
     module = llvm::orc::ThreadSafeModule{ std::move(m), std::move(llvm_ctx) };
     builder = std::make_unique<llvm::IRBuilder<>>(*module.getContext().getContextUnlocked());
