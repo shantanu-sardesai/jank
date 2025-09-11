@@ -22,6 +22,9 @@ namespace jank::runtime
   bool is_simple_symbol(object_ref o);
   bool is_qualified_symbol(object_ref o);
 
+  object_ref to_unqualified_symbol(object_ref o);
+  object_ref to_qualified_symbol(object_ref ns, object_ref name);
+
   object_ref print(object_ref args);
   object_ref println(object_ref args);
   object_ref pr(object_ref args);
@@ -87,4 +90,10 @@ namespace jank::runtime
 
   bool is_inst(object_ref o);
   i64 inst_ms(object_ref o);
+
+  object_ref re_pattern(object_ref o);
+  object_ref re_matcher(object_ref re, object_ref s);
+  object_ref re_find(object_ref m);
+  object_ref re_groups(object_ref m);
+  object_ref re_matches(object_ref re, object_ref s);
 }

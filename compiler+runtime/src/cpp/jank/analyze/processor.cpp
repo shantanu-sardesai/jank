@@ -194,7 +194,7 @@ namespace jank::analyze
                                         expr::cpp_value_ref const val,
                                         native_vector<runtime::object_ref> const &macro_expansions)
   {
-    if(args.size() == 2 || Cpp::IsPointerType(args[0].m_Type)
+    if(args.size() == 2 || Cpp::IsPointerType(Cpp::GetNonReferenceType(args[0].m_Type))
        || Cpp::IsArrayType(Cpp::GetNonReferenceType(args[0].m_Type)))
     {
       return ok();
@@ -210,8 +210,10 @@ namespace jank::analyze
   {
     if(args.size() == 2)
     {
-      if((Cpp::IsPointerType(args[0].m_Type) && !Cpp::IsIntegral(args[1].m_Type))
-         || (Cpp::IsPointerType(args[1].m_Type) && !Cpp::IsIntegral(args[0].m_Type)))
+      if((Cpp::IsPointerType(Cpp::GetNonReferenceType(args[0].m_Type))
+          && !Cpp::IsIntegral(Cpp::GetNonReferenceType(args[1].m_Type)))
+         || (Cpp::IsPointerType(Cpp::GetNonReferenceType(args[1].m_Type))
+             && !Cpp::IsIntegral(Cpp::GetNonReferenceType(args[0].m_Type))))
       {
         return invalid_binary(args, op_name, val, macro_expansions);
       }
@@ -227,7 +229,8 @@ namespace jank::analyze
   {
     if(args.size() == 2)
     {
-      if(Cpp::IsIntegral(args[0].m_Type) && Cpp::IsPointerType(args[1].m_Type))
+      if(Cpp::IsIntegral(Cpp::GetNonReferenceType(args[0].m_Type))
+         && Cpp::IsPointerType(Cpp::GetNonReferenceType(args[1].m_Type)))
       {
         /* TODO: Add a note to swap the arguments. */
         return invalid_binary(args, op_name, val, macro_expansions);
@@ -244,7 +247,7 @@ namespace jank::analyze
   {
     for(auto const &arg : args)
     {
-      if(Cpp::IsPointerType(arg.m_Type))
+      if(Cpp::IsPointerType(Cpp::GetNonReferenceType(arg.m_Type)))
       {
         return invalid(args, op_name, val, macro_expansions);
       }
@@ -260,7 +263,7 @@ namespace jank::analyze
   {
     for(auto const &arg : args)
     {
-      if(cpp_util::is_nullptr(arg.m_Type))
+      if(cpp_util::is_nullptr(Cpp::GetNonReferenceType(arg.m_Type)))
       {
         return invalid(args, op_name, val, macro_expansions);
       }
@@ -278,7 +281,7 @@ namespace jank::analyze
     {
       for(auto const &arg : args)
       {
-        if(Cpp::IsPointerType(arg.m_Type))
+        if(Cpp::IsPointerType(Cpp::GetNonReferenceType(arg.m_Type)))
         {
           return invalid(args, op_name, val, macro_expansions);
         }
@@ -295,7 +298,7 @@ namespace jank::analyze
   {
     for(auto const &arg : args)
     {
-      if(!Cpp::IsIntegral(arg.m_Type))
+      if(!Cpp::IsIntegral(Cpp::GetNonReferenceType(arg.m_Type)))
       {
         return invalid(args, op_name, val, macro_expansions);
       }
@@ -314,7 +317,7 @@ namespace jank::analyze
     {
       for(auto const &arg : args)
       {
-        if(!Cpp::IsIntegral(arg.m_Type))
+        if(!Cpp::IsIntegral(Cpp::GetNonReferenceType(arg.m_Type)))
         {
           return invalid(args, op_name, val, macro_expansions);
         }
@@ -333,8 +336,9 @@ namespace jank::analyze
   {
     if(args.size() == 2)
     {
-      auto const is_arg0_ptr{ Cpp::IsPointerType(args[0].m_Type) };
-      if((is_arg0_ptr && is_arg0_ptr != Cpp::IsPointerType(args[1].m_Type))
+      auto const is_arg0_ptr{ Cpp::IsPointerType(Cpp::GetNonReferenceType(args[0].m_Type)) };
+      if((is_arg0_ptr
+          && is_arg0_ptr != Cpp::IsPointerType(Cpp::GetNonReferenceType(args[1].m_Type)))
          || !Cpp::IsImplicitlyConvertible(Cpp::GetNonReferenceType(args[0].m_Type),
                                           Cpp::GetNonReferenceType(args[1].m_Type)))
       {
@@ -349,7 +353,8 @@ namespace jank::analyze
   {
     if(args.size() == 2)
     {
-      auto const ret{ Cpp::GetCommonType(args[0].m_Type, args[1].m_Type) };
+      auto const ret{ Cpp::GetCommonType(Cpp::GetNonReferenceType(args[0].m_Type),
+                                         Cpp::GetNonReferenceType(args[1].m_Type)) };
       if(ret)
       {
         return ret;
@@ -357,11 +362,11 @@ namespace jank::analyze
 
       /* For pointer arithmetic, we won't have a common type. We want to return the
        * pointer type, though. */
-      if(Cpp::IsPointerType(args[0].m_Type))
+      if(Cpp::IsPointerType(Cpp::GetNonReferenceType(args[0].m_Type)))
       {
         return args[0].m_Type;
       }
-      if(Cpp::IsPointerType(args[1].m_Type))
+      if(Cpp::IsPointerType(Cpp::GetNonReferenceType(args[1].m_Type)))
       {
         return args[1].m_Type;
       }
@@ -388,8 +393,8 @@ namespace jank::analyze
      * The reason we don't want value types is that jank doesn't work with C++ value semantics.
      * The only value types we have are those immediately constructed or returned from C++
      * functions. Everything else is a reference. */
-    auto const pointee{ Cpp::GetPointeeType(args[0].m_Type) };
-    if(Cpp::IsPointerType(pointee))
+    auto const pointee{ Cpp::GetPointeeType(Cpp::GetNonReferenceType(args[0].m_Type)) };
+    if(pointee && Cpp::IsPointerType(pointee))
     {
       return pointee;
     }
@@ -414,6 +419,7 @@ namespace jank::analyze
 
   static jtl::ptr<void> left_type(std::vector<Cpp::TemplateArgInfo> const &args)
   {
+    /* TODO: Consider reference vs value type. */
     return args[0].m_Type;
   }
 
@@ -908,7 +914,8 @@ namespace jank::analyze
         object_source(val->form),
         latest_expansion(macro_expansions));
     }
-    if(is_ctor && Cpp::IsAggregateConstructible(val->type, arg_types))
+    if(is_ctor
+       && Cpp::IsAggregateConstructible(val->type, arg_types, __rt_ctx->unique_munged_string()))
     {
       //util::println("using aggregate initializaation");
       return jtl::make_ref<expr::cpp_constructor_call>(position,
@@ -1151,39 +1158,33 @@ namespace jank::analyze
     , root_frame{ jtl::make_ref<local_frame>(local_frame::frame_type::root, rt_ctx, none) }
   {
     using runtime::obj::symbol;
-    auto const make_fn = [this](auto const fn) -> decltype(specials)::mapped_type {
-      return [this, fn](auto const list,
-                        auto const current_frame,
-                        auto const position,
-                        auto const &fn_ctx,
-                        auto const needs_box) {
-        return (this->*fn)(list, current_frame, position, fn_ctx, needs_box);
-      };
-    };
-    /* TODO: Just use a raw fn pointer. No need for std::function. */
-    specials = {
-      {        make_box<symbol>("def"),        make_fn(&processor::analyze_def) },
-      {        make_box<symbol>("fn*"),         make_fn(&processor::analyze_fn) },
-      {      make_box<symbol>("recur"),      make_fn(&processor::analyze_recur) },
-      {         make_box<symbol>("do"),         make_fn(&processor::analyze_do) },
-      {       make_box<symbol>("let*"),        make_fn(&processor::analyze_let) },
-      {     make_box<symbol>("letfn*"),      make_fn(&processor::analyze_letfn) },
-      {      make_box<symbol>("loop*"),       make_fn(&processor::analyze_loop) },
-      {         make_box<symbol>("if"),         make_fn(&processor::analyze_if) },
-      {      make_box<symbol>("quote"),      make_fn(&processor::analyze_quote) },
-      {        make_box<symbol>("var"),   make_fn(&processor::analyze_var_call) },
-      {      make_box<symbol>("throw"),      make_fn(&processor::analyze_throw) },
-      {        make_box<symbol>("try"),        make_fn(&processor::analyze_try) },
-      {      make_box<symbol>("case*"),       make_fn(&processor::analyze_case) },
-      {    make_box<symbol>("cpp/raw"),    make_fn(&processor::analyze_cpp_raw) },
-      {   make_box<symbol>("cpp/type"),   make_fn(&processor::analyze_cpp_type) },
-      {  make_box<symbol>("cpp/value"),  make_fn(&processor::analyze_cpp_value) },
-      {   make_box<symbol>("cpp/cast"),   make_fn(&processor::analyze_cpp_cast) },
-      {    make_box<symbol>("cpp/box"),    make_fn(&processor::analyze_cpp_box) },
-      {  make_box<symbol>("cpp/unbox"),  make_fn(&processor::analyze_cpp_unbox) },
-      {    make_box<symbol>("cpp/new"),    make_fn(&processor::analyze_cpp_new) },
-      { make_box<symbol>("cpp/delete"), make_fn(&processor::analyze_cpp_delete) },
-    };
+    for(auto const &p :
+        std::initializer_list<std::pair<runtime::obj::symbol_ref, special_function_type>>{
+          {        make_box<symbol>("def"),        &processor::analyze_def },
+          {        make_box<symbol>("fn*"),         &processor::analyze_fn },
+          {      make_box<symbol>("recur"),      &processor::analyze_recur },
+          {         make_box<symbol>("do"),         &processor::analyze_do },
+          {       make_box<symbol>("let*"),        &processor::analyze_let },
+          {     make_box<symbol>("letfn*"),      &processor::analyze_letfn },
+          {      make_box<symbol>("loop*"),       &processor::analyze_loop },
+          {         make_box<symbol>("if"),         &processor::analyze_if },
+          {      make_box<symbol>("quote"),      &processor::analyze_quote },
+          {        make_box<symbol>("var"),   &processor::analyze_var_call },
+          {      make_box<symbol>("throw"),      &processor::analyze_throw },
+          {        make_box<symbol>("try"),        &processor::analyze_try },
+          {      make_box<symbol>("case*"),       &processor::analyze_case },
+          {    make_box<symbol>("cpp/raw"),    &processor::analyze_cpp_raw },
+          {   make_box<symbol>("cpp/type"),   &processor::analyze_cpp_type },
+          {  make_box<symbol>("cpp/value"),  &processor::analyze_cpp_value },
+          {   make_box<symbol>("cpp/cast"),   &processor::analyze_cpp_cast },
+          {    make_box<symbol>("cpp/box"),    &processor::analyze_cpp_box },
+          {  make_box<symbol>("cpp/unbox"),  &processor::analyze_cpp_unbox },
+          {    make_box<symbol>("cpp/new"),    &processor::analyze_cpp_new },
+          { make_box<symbol>("cpp/delete"), &processor::analyze_cpp_delete },
+    })
+    {
+      specials.insert(p);
+    }
   }
 
   processor::expression_result processor::analyze(read::parse::processor::iterator parse_current,
@@ -1566,7 +1567,15 @@ namespace jank::analyze
                               jtl::immutable_string const &name,
                               local_frame_ptr const current_frame)
   {
-    auto const params_obj(list->data.first().unwrap());
+    auto const first_form(list->data.first());
+    if(first_form.is_none())
+    {
+      return error::analyze_invalid_fn_parameters("This function is missing a parameter vector.",
+                                                  object_source(list),
+                                                  "The missing [] was expected here.",
+                                                  latest_expansion(macro_expansions));
+    }
+    auto const params_obj(first_form.unwrap());
     if(params_obj->type != runtime::object_type::persistent_vector)
     {
       return error::analyze_invalid_fn_parameters("A function parameter vector must be a vector.",
@@ -2137,7 +2146,7 @@ namespace jank::analyze
   }
 
   processor::expression_result
-  processor::analyze_letfn(runtime::obj::persistent_list_ref const &o,
+  processor::analyze_letfn(runtime::obj::persistent_list_ref const o,
                            local_frame_ptr const current_frame,
                            expression_position const position,
                            jtl::option<expr::function_context_ref> const &fn_ctx,
@@ -3021,7 +3030,7 @@ namespace jank::analyze
       auto const found_special(specials.find(sym));
       if(found_special != specials.end())
       {
-        return found_special->second(o, current_frame, position, fn_ctx, needs_box);
+        return (*this.*found_special->second)(o, current_frame, position, fn_ctx, needs_box);
       }
 
       pop_macro_expansions = push_macro_expansions(*this, o);
@@ -3996,7 +4005,7 @@ namespace jank::analyze
     }
 
     auto const value_expr{ value_expr_res.expect_ok() };
-    auto const value_type{ cpp_util::expression_type(value_expr) };
+    auto const value_type{ Cpp::GetNonReferenceType(cpp_util::expression_type(value_expr)) };
     if(!Cpp::IsPointerType(value_type))
     {
       return error::analyze_invalid_cpp_box(
@@ -4372,7 +4381,8 @@ namespace jank::analyze
                           || std::same_as<T, runtime::obj::persistent_string>
                           || std::same_as<T, runtime::obj::character>
                           || std::same_as<T, runtime::obj::uuid>
-                          || std::same_as<T, runtime::obj::inst>)
+                          || std::same_as<T, runtime::obj::inst>
+                          || std::same_as<T, runtime::obj::re_pattern>)
         {
           return analyze_primitive_literal(o, current_frame, position, fn_ctx, needs_box);
         }
