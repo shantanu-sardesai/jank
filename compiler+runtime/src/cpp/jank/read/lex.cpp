@@ -649,7 +649,6 @@ namespace jank::read::lex
           bool expecting_exponent{};
           bool expecting_more_digits{};
           bool found_N{};
-          bool found_M{};
           i8 radix{ 10 };
           auto r_pos{ pos }; /* records the 'r' position if one is found */
           bool found_beginning_negative{};
@@ -739,13 +738,6 @@ namespace jank::read::lex
                                                  { token_start, pos },
                                                  error::note{ "Found 'N' here.", pos });
               }
-              if(found_M)
-              {
-                ++pos;
-                return error::lex_invalid_number("Unexpected 'M' found in number.",
-                                                 { token_start, pos },
-                                                 error::note{ "Found 'M' here.", pos });
-              }
               if(radix < 15)
               {
                 /* Numbers containing 'e' and radix < 15, then it must be a decimal number. */
@@ -802,12 +794,6 @@ namespace jank::read::lex
                                                  { token_start, pos },
                                                  error::note{ "Found 'N' here.", pos });
               }
-              if(found_M)
-              {
-                return error::lex_invalid_number("Unexpected 'M' found in number.",
-                                                 { token_start, pos },
-                                                 error::note{ "Found 'M' here.", pos });
-              }
               found_r = true;
               expecting_more_digits = true;
               r_pos = pos;
@@ -837,12 +823,6 @@ namespace jank::read::lex
                 return error::lex_invalid_number("Unexpected 'N' found in number.",
                                                  { token_start, pos },
                                                  error::note{ "Found 'N' here.", pos });
-              }
-              if(found_M)
-              {
-                return error::lex_invalid_number("Unexpected 'M' found in number.",
-                                                 { token_start, pos },
-                                                 error::note{ "Found 'M' here.", pos });
               }
               found_slash_after_number = true;
               /* Skip the '/' char and look for the denominator number. */
@@ -939,27 +919,6 @@ namespace jank::read::lex
                 expecting_more_digits = false;
                 break;
               }
-              if(c == 'M')
-              {
-                ++pos;
-                /* big decimal */
-                if(found_M)
-                {
-                  return error::lex_invalid_number("Unexpected 'M' found in number.",
-                                                   { token_start, pos },
-                                                   error::note{ "Found 'M' here.", pos });
-                }
-                if(found_slash_after_number)
-                {
-                  found_slash_after_number = false;
-                  return error::lex_invalid_number("Unexpected 'M' found in number.",
-                                                   { token_start, pos },
-                                                   error::note{ "Found 'M' here.", pos });
-                }
-                found_M = true;
-                expecting_more_digits = false;
-                break;
-              }
               /* When parsing decimal numbers only, we would break if we see a non-digit char. */
               /* But to support other kinds of numbers (octal, hex, etc.), we only break if
                * c is also not a letter. */
@@ -1046,7 +1005,7 @@ namespace jank::read::lex
 
             /* Check for invalid digits. */
             native_vector<char> invalid_digits{};
-            auto const number_end{ (found_N || found_M) ? pos - 1 : pos };
+            auto const number_end{ found_N ? pos - 1 : pos };
             for(auto i{ number_start }; i < number_end; i++)
             {
               if(!is_valid_num_char(file[i], radix))
@@ -1064,7 +1023,7 @@ namespace jank::read::lex
                 { token_start, pos });
             }
             /* Real numbers. */
-            if(contains_dot || is_scientific || found_exponent_sign || found_M)
+            if(contains_dot || is_scientific || found_exponent_sign)
             {
               return ok(token{ token_start,
                                pos,
@@ -1107,12 +1066,11 @@ namespace jank::read::lex
       case '%':
       case '.':
         {
-          // FIXME: The lexer seems to coming here while parsing 1.23M big decimal literal value.
-          // auto &&e(check_whitespace(found_space));
-          // if(e.is_some())
-          // {
-          //   return err(std::move(e.unwrap()));
-          // }
+          auto &&e(check_whitespace(found_space));
+          if(e.is_some())
+          {
+            return err(std::move(e.unwrap()));
+          }
           while(true)
           {
             auto const oc(peek());
