@@ -649,6 +649,7 @@ namespace jank::read::lex
           bool expecting_exponent{};
           bool expecting_more_digits{};
           bool found_N{};
+          bool found_M{};
           i8 radix{ 10 };
           auto r_pos{ pos }; /* records the 'r' position if one is found */
           bool found_beginning_negative{};
@@ -888,11 +889,6 @@ namespace jank::read::lex
                 return error::lex_invalid_number("Missing exponent from end of number.",
                                                  { token_start, pos });
               }
-              if(contains_dot)
-              {
-                /* If we have a dot, then we are parsing a decimal real number. */
-                break;
-              }
               if(!contains_leading_digit)
               {
                 /* If we don't have a leading digit, then we are parsing a symbol. */
@@ -900,6 +896,11 @@ namespace jank::read::lex
               }
               if(c == 'N')
               {
+                if(contains_dot)
+                {
+                  /* If we have a dot, then we are parsing a decimal real number. */
+                  break;
+                }
                 ++pos;
                 /* big integer */
                 if(found_N)
@@ -915,8 +916,47 @@ namespace jank::read::lex
                                                    { token_start, pos },
                                                    error::note{ "Found 'N' here.", pos });
                 }
+                if(found_M)
+                {
+                  return error::lex_invalid_number("Unexpected 'M' found in number.",
+                                                   { token_start, pos },
+                                                   error::note{ "Found 'M' here.", pos });
+                }
                 found_N = true;
                 expecting_more_digits = false;
+                break;
+              }
+              if(c == 'M')
+              {
+                /* Big decimal number. */
+                ++pos;
+                if(found_M)
+                {
+                  return error::lex_invalid_number("Unexpected 'M' found in number.",
+                                                   { token_start, pos },
+                                                   error::note{ "Found 'M' here.", pos });
+                }
+                if(found_slash_after_number)
+                {
+                  found_slash_after_number = false;
+                  return error::lex_invalid_number("Unexpected 'M' found in number.",
+                                                   { token_start, pos },
+                                                   error::note{ "Found 'M' here.", pos });
+                }
+                if(found_N)
+                {
+                  return error::lex_invalid_number("Unexpected 'N' found in number.",
+                                                   { token_start, pos },
+                                                   error::note{ "Found 'N' here.", pos });
+                }
+                found_M = true;
+                expecting_more_digits = false;
+                break;
+              }
+              if(contains_dot)
+              {
+                /* If we have a dot and do not have an 'M', then we are parsing a regular decimal
+                 * real number. */
                 break;
               }
               /* When parsing decimal numbers only, we would break if we see a non-digit char. */
@@ -1005,7 +1045,7 @@ namespace jank::read::lex
 
             /* Check for invalid digits. */
             native_vector<char> invalid_digits{};
-            auto const number_end{ found_N ? pos - 1 : pos };
+            auto const number_end{ found_N || found_M ? pos - 1 : pos };
             for(auto i{ number_start }; i < number_end; i++)
             {
               if(!is_valid_num_char(file[i], radix))
@@ -1023,7 +1063,7 @@ namespace jank::read::lex
                 { token_start, pos });
             }
             /* Real numbers. */
-            if(contains_dot || is_scientific || found_exponent_sign)
+            if(contains_dot || is_scientific || found_exponent_sign || found_M)
             {
               return ok(token{ token_start,
                                pos,
