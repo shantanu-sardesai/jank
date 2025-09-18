@@ -495,10 +495,10 @@
        result#)))
 
 (defmethod assert-expr 'thrown? [msg form]
-  ;; (is (thrown? expr))
+  ;; (is (thrown? class expr))
   ;; Asserts that evaluating expr throws something.
   ;; Returns the thing thrown or nil.
-  (let [body (nthnext form 1)]
+  (let [body (nthnext form 2)]
     `(try (do ~@body)
           (do-report {:type :fail :message ~msg
                       :expected '~form :actual nil})
