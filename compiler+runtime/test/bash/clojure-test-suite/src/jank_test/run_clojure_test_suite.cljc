@@ -103,7 +103,7 @@
     clojure.core-test.second
     ;clojure.core-test.seq ; Unable to find binding for local 'input' in fn 'try_body, error: Characters 'M' are invalid for a base 10 number.
     ;clojure.core-test.sequential-qmark ; TODO: port to-array, In clojure.core-test.sequential-qmark$fn_2-98, duplicate definition of symbol '_fn_2_0', unloadable
-    ;clojure.core-test.short ; Unable to resolve symbol 'java.lang.Short'., Expecting whitespace after the last token. due to M.
+    ;clojure.core-test.short ; TODO: port short, Unable to resolve symbol 'java.lang.Short'., Expecting whitespace after the last token. due to M.
     clojure.core-test.simple-ident-qmark ; Expecting whitespace after the last token. due to M.
     clojure.core-test.simple-keyword-qmark ; Expecting whitespace after the last token. due to M.
     clojure.core-test.simple-symbol-qmark ; Expecting whitespace after the last token. due to M.
@@ -124,7 +124,7 @@
     ;clojure.core-test.unsigned-bit-shift-right ; Uncaught exception: invalid object type: 0, In clojure.core-test.unsigned-bit-shift-right$fn_2-37, duplicate definition of symbol '_jank_global_init_36', Exception: invalid object type: 0
     ;clojure.core-test.with-out-str ; Exception: TODO: port with-out-str
     ;clojure.core-test.with-precision ; TODO: port with-precision, Read error (372 - 374): invalid number: chars 'M' are invalid for radix 10
-    ;clojure.core-test.zero-qmark ; Unable to resolve symbol 'Exception'., Expecting whitespace after the last token. due to M.
+    clojure.core-test.zero-qmark ; Unable to resolve symbol 'Exception'., Expecting whitespace after the last token. due to M.
   ])
 
 (defn -main []
