@@ -37,3 +37,6 @@
 [submodule "compiler+runtime/third-party/zip"]
 	path = compiler+runtime/third-party/zip
 	url = https://github.com/jank-lang/zip.git
+[submodule "compiler+runtime/third-party/boost-math"]
+	path = compiler+runtime/third-party/boost-math
+	url = https://github.com/boostorg/math

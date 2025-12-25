@@ -1,5 +1,7 @@
 #include <random>
 
+#include <boost/math/common_factor.hpp>
+
 #include <jank/runtime/core/math.hpp>
 #include <jank/runtime/behavior/number_like.hpp>
 #include <jank/runtime/visit.hpp>
@@ -378,8 +380,16 @@ namespace jank::runtime
   {
     return visit_number_like(
       [](auto const typed_l, auto const r) -> object_ref {
+        using LT = typename decltype(typed_l)::value_type;
         return visit_number_like(
           [](auto const typed_r, auto const &typed_l) -> object_ref {
+            using RT = typename decltype(typed_r)::value_type;
+
+            if(std::same_as<LT, obj::big_integer> && std::same_as<RT, obj::big_integer>)
+            {
+              // boost::math::gcd(1, 2);
+            }
+
             return make_box(typed_l / typed_r->data).erase();
           },
           r,
