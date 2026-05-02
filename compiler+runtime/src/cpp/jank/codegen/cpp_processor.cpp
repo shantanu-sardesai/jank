@@ -130,6 +130,7 @@ namespace jank::codegen
     /* NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables) */
     global_vars;
 
+  /* TODO: integer_ref codegen needs to handle small integers. */
   static identifier lift_constant(identifier const &name, builder &b)
   {
     auto const o{ b.module->lifted_constants.at(name) };
@@ -218,6 +219,10 @@ namespace jank::codegen
           else if constexpr(std::same_as<T, obj::integer>)
           {
             util::format_to(buffer, "_jank_int({})", typed_o->data);
+          }
+          else if constexpr(std::same_as<T, obj::small_integer>)
+          {
+            util::format_to(buffer, "_jank_small_int({})", typed_o->data);
           }
           else if constexpr(std::same_as<T, obj::real>)
           {
@@ -1113,7 +1118,8 @@ namespace jank::codegen
     }
 
     util::format_to(b.body_buffer,
-                    "switch(jank_shift_mask_case_integer({}.get(), {}, {})) {",
+                    "switch(jank_shift_mask_case_integer(static_cast<jank::runtime::object*>({}."
+                    "data), {}, {})) {",
                     inst->value,
                     inst->shift,
                     inst->mask);
@@ -1303,6 +1309,11 @@ namespace jank::codegen
           util::format_to(b.body_buffer, ", ");
         }
 
+        if(param_type && Cpp::IsPointerType(param_type) && is_any_object(arg_type))
+        {
+          util::format_to(b.body_buffer, "static_cast<jank::runtime::object*>(");
+        }
+
         if(param_type && Cpp::IsRvalueReferenceType(param_type))
         {
           util::format_to(b.body_buffer, "std::move({})", arg_tmp);
@@ -1314,7 +1325,7 @@ namespace jank::codegen
 
         if(param_type && Cpp::IsPointerType(param_type) && is_any_object(arg_type))
         {
-          util::format_to(b.body_buffer, ".get()");
+          util::format_to(b.body_buffer, ".data)");
         }
         need_comma = true;
       }
